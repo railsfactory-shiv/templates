@@ -1,3 +1,7 @@
+answer = ask("\n\nWekcome to basic template. Plz answer following questions\nDo you need sudo permittion to install gems?")
+sudo = (answer == 'y' || answer == 'yes' || answer.empty?)
+
+PROJECT_NAME = File.basename(root)
 
 #====================
 # PLUGINS
@@ -11,10 +15,7 @@ plugin 'open_id_authentication',  :git => 'git://github.com/rails/open_id_authen
 # GEMS
 #====================
 
-gem 'mislav-will_paginate'
-gem 'ruby-openid', :lib => 'openid'
-
-#freeze!
+#gem 'mislav-will_paginate'
 
 
 #====================
@@ -66,6 +67,34 @@ file 'app/views/layouts/application.html.erb',
 </html>
 }
 
+file 'config/database.yml', 
+%{
+development:
+  adapter: mysql
+  database: #{PROJECT_NAME}_development
+  username: root
+  password: 
+  host: localhost
+  encoding: utf8
+  
+test:
+  adapter: mysql
+  database: #{PROJECT_NAME}_test
+  username: root
+  password: 
+  host: localhost
+  encoding: utf8
+  
+production:
+  adapter: mysql
+  database: #{PROJECT_NAME}_production
+  username: #{PROJECT_NAME}
+  password: 
+  host: localhost
+  encoding: utf8
+  socket: /var/lib/mysql/mysql.sock
+}
+
 #====================
 # INITIALIZERS
 #====================
@@ -91,17 +120,41 @@ capify!
 # RUN GENERATOR SCRIPTS
 # ====================
 
-rake("gems:install", :sudo => false)
+rake("gems:install", :sudo => sudo)
 rake("gems:unpack")
 
-generate("authenticated", "user session")
-generate(:scaffold, "person", "name:string", "address:text", "age:integer")
+generate("authenticated", "user sessions --include-activation")
 
-route "map.root :controller => 'people'"
-route("map.signup  '/signup', :controller => 'users',   :action => 'new'")
-route("map.login  '/login',  :controller => 'session', :action => 'new'")
-route("map.logout '/logout', :controller => 'session', :action => 'destroy'")
+# ===============================
+# USER OBSERVER after Authenticated generated
+# ===============================
 
+file 'config/environment.rb', File.readlines('config/environment.rb','w').join('\n').sub("Rails::Initializer.run do |config|", "Rails::Initializer.run do |config|\n\t#Added By Basic Template\n\tconfig.active_record.observers = :user_observer\n")
+
+file 'app/models/user_observer.rb',
+%q{class UserObserver < ActiveRecord::Observer
+   def after_create(user)
+    user.reload
+    UserMailer.deliver_signup_notification(user)
+   end
+   
+   def after_save(user)
+    user.reload
+    UserMailer.deliver_activation(user) if user.recently_activated?
+   end
+ end
+}
+
+answer = ask("\n\nWould you like me to generate a sample scaffold")
+answer = (answer == 'y' || answer == 'yes' || answer.empty?)
+if answer
+ generate(:scaffold, "person", "name:string", "address:text", "age:integer")
+ route "map.root :controller => 'people'"
+else
+ route "map.root :controller => 'sessions'"  
+end
+
+rake("db:create")
 rake("db:migrate")
 
 
@@ -111,7 +164,11 @@ rake("db:migrate")
 
 # This gem is helpful in development mode. This is not required in production. 
 # So I am not going to add this gem in app specific gems list
-run "gem install ruby-debug"
+#~ if sudo
+ #~ run "sudo gem install ruby-debug"
+#~ else
+ #~ run "gem install ruby-debug"
+#~ end
 
 run "rm public/index.html"
 run "touch public/stylesheets/screen.css"
